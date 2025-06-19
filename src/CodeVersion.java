@@ -9,6 +9,6 @@
  */
 public class CodeVersion {
     
-    //MS2 AOOP (Yna) (June 19, 2025)
+    //MS2 AOOP (Yna)(June 19, 2025)
     
 }
