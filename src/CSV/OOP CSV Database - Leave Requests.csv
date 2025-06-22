@@ -1,0 +1,26 @@
+Date of Submission,Employee ID,First Name,Last Name,Position,Status,Immediate Supervisor,Type of Leave,Note,Start,End,Leave Status,Remaining Vacation Leave,Remaining Sick Leave
+12/12/2024,10001,Manuel III,Garcia,Chief Executive Officer,Regular,N/A,Sick Leave,3 days rest per doctor's advice.,12/12/2024,15/12/2024,Pending,13,9
+14/1/2024,10002,Antonio,Lim,Chief Operating Officer,Regular,Garcia Manuel III,Vacation Leave,Traveling to Hong Kong to avail leave balance.,14/1/2024,24/1/2024,Accepted,14,10
+9/2/2024,10003,Bianca Sofia,Aquino,Chief Finance Officer,Regular,Garcia Manuel III,Maternity Leave,I will be giving birth in 2 weeks!,9/2/2024,25/5/2023,Accepted,14,10
+12/2/2024,10004,Isabella,Reyes,Chief Marketing Officer,Regular,Garcia Manuel III,Vacation Leave,Sudden change in schedule for dentist appointment.,12/2/2024,13/2/2024,Denied,15,9
+18/2/2024,10005,Eduard,Hernandez,IT Operations and Systems,Regular,Lim Antonio,Paternity Leave,Would like to avail leave to take care of my new born.,18/2/2024,25/2/2024,Accepted,14,7
+28/2/2024,10006,Andrea Mae,Villanueva,HR Manager,Regular,Lim Antonio,Sick Leave,Food poisoning needing 4 days rest.,28/2/2024,3/3/2024,Accepted,14,8
+6/12/2024,10007,Brad ,San Jose,HR Team Leader,Regular,Villanueva Andrea Mae,Vacation Leave,Will be availing remaining annual leave balance.,6/12/2024,20/12/2024,Pending,15,10
+7/3/2024,10008,Alice,Romualdez,HR Rank and File,Regular,San Jose Brad,Vacation Leave,Planning to travel to Japan for 2 weeks.,7/3/2024,21/3/2024,Denied,15,10
+9/3/2024,10009,Rosie ,Atienza,HR Rank and File,Regular,San Jose Brad,Maternity Leave,Will be in labor starting the next week.,9/3/2024,22/6/2023,Accepted,14,6
+26/3/2024,10010,Roderick,Alvaro,Accounting Head,Regular,Aquino Bianca Sofia ,Vacation Leave,I need to handle a personal matter.,26/3/2024,27/3/2024,Denied,15,8
+4/4/2024,10011,Anthony,Salcedo,Payroll Manager,Regular,Alvaro Roderick,Sick Leave,Diagnosed with tonsillitis adviced to rest for 3 days.,4/4/2024,7/4/2024,Accepted,14,6
+12/12/2024,10012,Josie ,Lopez,Payroll Team Leader,Regular,Salcedo Anthony,Maternity Leave,I am due in a week!,12/12/2024,25/12/2023,Pending,15,5
+20/4/2024,10013,Martha,Farala,Payroll Rank and File,Regular,Salcedo Anthony,Vacation Leave,Needing short vacation due to stress.,20/4/2024,27/4/2024,Denied,15,9
+21/4/2024,10014,Leila,Martinez,Payroll Rank and File,Regular,Salcedo Anthony,Vacation Leave,I will be attending a friend's surprise birthday party!,21/4/2024,22/4/2024,Denied,15,7
+28/12/2024,10015,Fredrick ,Romualdez,Account Manager,Regular,Lim Antonio,Sick Leave,I'm having severe migraines will not be able to attend work.,28/12/2024,30/12/2024,Pending,15,7
+13/12/2024,10016,Christian,Mata,Account Team Leader,Regular,Romualdez Fredrick ,Sick Leave,I'm having symptoms of an oncoming cold.,13/12/2024,16/12/2024,Pending,15,7
+20/5/2024,10017,Selena ,De Leon,Account Team Leader,Regular,Romualdez Fredrick ,Vacation Leave,I will be availing the remaining leave to travel with family.,20/5/2024,3/6/2024,Accepted,14,8
+19/6/2024,10018,Allison ,San Jose,Account Rank and File,Regular,Mata Christian,Vacation Leave,Returning to the province due to a recent loss in my family.,19/6/2024,20/6/2024,Accepted,14,9
+24/6/2024,10019,Cydney ,Rosario,Account Rank and File,Regular,Mata Christian,Vacation Leave,A recent family emergency needs my immediate attention.,24/6/2024,25/6/2024,Accepted,14,7
+10/7/2024,10020,Mark ,Bautista,Account Rank and File,Regular,Mata Christian,Sick Leave,Per doctor's advice I will need to recuperate for 5 days.,10/7/2024,15/7/2024,Accepted,14,4
+16/7/2024,10021,Darlene ,Lazaro,Account Rank and File,Probationary,Mata Christian,Vacation Leave,I will be attending a concert in Singapore.,16/7/2024,26/7/2024,Denied,15,8
+8/12/2024,10022,Kolby ,Delos Santos,Account Rank and File,Probationary,Mata Christian,Paternity Leave,Requesting for leave for the birth of my child this coming week.,8/12/2024,15/12/2024,Pending,15,7
+24/12/2024,10023,Vella ,Santos,Account Rank and File,Probationary,Mata Christian,Vacation Leave,I will be traveling to Italy for my cousin's wedding!,24/12/2024,7/9/2023,Pending,15,7
+19/9/2024,10024,Tomas,Del Rosario,Account Rank and File,Probationary,Mata Christian,Sick Leave,I am having symptoms of high fever and cough needing rest.,19/9/2024,22/9/2024,Accepted,14,6
+2/10/2024,10025,Jacklyn ,Tolentino,Account Rank and File,Probationary,De Leon Selena,Sick Leave,In the hospital for appendicitis.,2/10/2024,16/10/2024,Accepted,9,0
