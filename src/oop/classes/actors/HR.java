@@ -1,420 +1,697 @@
 package oop.classes.actors;
 
-import Models.EmployeeModel;
-import Models.PayrollModel;
-import Models.UserAuthenticationModel;
+import Models.*;
+import Services.*;
+import Services.PayrollService.PayrollProcessingResult;
+import Services.LeaveService.LeaveApprovalResult;
+import Services.OvertimeService.OvertimeApprovalResult;
+import Services.ReportService.*;
 import DAOs.*;
 import oop.classes.enums.ApprovalStatus;
 import Utility.PasswordHasher;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
+
 
 /**
- * HR actor class - handles employee management, payroll processing, and report generation
- * Inherits from Employee and adds HR-specific database operations
+ * Enhanced HR Role Class - integrates with Services layer
+ * Handles all HR-specific operations including employee management, 
+ * payroll processing, leave management, and reporting
  */
 public class HR extends EmployeeModel {
     
-    private EmployeeDAO employeeDAO;
-    private PayrollDAO payrollDAO;
-    private UserAuthenticationDAO userAuthDAO;
-    private LeaveRequestDAO leaveRequestDAO;
-    private AttendanceDAO attendanceDAO;
-    private DeductionDAO deductionDAO;
-    private PositionDAO positionDAO;
+    // Service layer dependencies
+    private final PayrollService payrollService;
+    private final AttendanceService attendanceService;
+    private final LeaveService leaveService;
+    private final OvertimeService overtimeService;
+    private final ReportService reportService;
     
-    public HR() {
-        super();
-        initializeDAOs();
-    }
+    // DAO dependencies for direct operations
+    private final EmployeeDAO employeeDAO;
+    private final UserAuthenticationDAO userAuthDAO;
+    private final PayPeriodDAO payPeriodDAO;
     
+    // HR Role Permissions
+    private static final String[] HR_PERMISSIONS = {
+        "MANAGE_EMPLOYEES", "PROCESS_PAYROLL", "APPROVE_LEAVES", 
+        "GENERATE_REPORTS", "MANAGE_BENEFITS", "VIEW_ALL_ATTENDANCE",
+        "MANAGE_DEDUCTIONS", "SYSTEM_ADMINISTRATION"
+    };
+
+    /**
+     * Constructor for login purposes
+     */
     public HR(int employeeId, String firstName, String lastName, String email, String userRole) {
         super(employeeId, firstName, lastName, email, userRole);
-        initializeDAOs();
-    }
-    
-    private void initializeDAOs() {
+        
+        // Initialize services
+        DatabaseConnection dbConnection = new DatabaseConnection();
+        this.payrollService = new PayrollService(dbConnection);
+        this.attendanceService = new AttendanceService(dbConnection);
+        this.leaveService = new LeaveService(dbConnection);
+        this.overtimeService = new OvertimeService(dbConnection);
+        this.reportService = new ReportService(dbConnection);
+        
+        // Initialize DAOs (using default constructors like in your original code)
         this.employeeDAO = new EmployeeDAO();
-        this.payrollDAO = new PayrollDAO();
         this.userAuthDAO = new UserAuthenticationDAO();
-        this.leaveRequestDAO = new LeaveRequestDAO();
-        this.attendanceDAO = new AttendanceDAO();
-        this.deductionDAO = new DeductionDAO();
-        this.positionDAO = new PositionDAO();
+        this.payPeriodDAO = new PayPeriodDAO();
+        
+        System.out.println("HR user initialized: " + getFullName());
     }
-    
-    // Employee Management Methods
-    
+
+    // ================================
+    // EMPLOYEE MANAGEMENT OPERATIONS
+    // ================================
+
     /**
-     * Creates a new employee record
-     * @param employee The employee to create
-     * @param initialPassword Initial password for the employee
-     * @return true if successful, false otherwise
+     * Creates a new employee with all required validations
      */
-    public boolean createEmployee(EmployeeModel employee, String initialPassword) {
+    public HROperationResult createEmployee(EmployeeModel employee, String initialPassword) {
+        HROperationResult result = new HROperationResult();
+        
         try {
+            // Validate HR permissions
+            if (!hasPermission("MANAGE_EMPLOYEES")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to create employees");
+                return result;
+            }
+
             // Validate password requirements
             if (!PasswordHasher.isPasswordValid(initialPassword)) {
-                System.err.println("Password does not meet requirements: " + PasswordHasher.getPasswordRequirements());
-                return false;
+                result.setSuccess(false);
+                result.setMessage("Password does not meet requirements: " + 
+                    PasswordHasher.getPasswordRequirements());
+                return result;
             }
-            
-            // Hash the password
+
+            // Check if email already exists
+            if (userAuthDAO.emailExists(employee.getEmail())) {
+                result.setSuccess(false);
+                result.setMessage("Email already exists in system: " + employee.getEmail());
+                return result;
+            }
+
+            // Hash password and create employee
             String hashedPassword = PasswordHasher.hashPassword(initialPassword);
             employee.setPasswordHash(hashedPassword);
-            
-            // Create employee record
+
             boolean success = employeeDAO.addEmployee(employee);
             
             if (success) {
-                System.out.println("Employee created successfully: " + employee.getFirstName() + " " + employee.getLastName());
-                // Could add audit logging here
+                // Initialize leave balances for the new employee
+                leaveService.initializeEmployeeLeaveBalances(employee.getEmployeeId(), 
+                    LocalDate.now().getYear());
+                
+                result.setSuccess(true);
+                result.setMessage("Employee created successfully: " + employee.getFullName());
+                result.setEmployeeId(employee.getEmployeeId());
+                
+                logHRActivity("EMPLOYEE_CREATED", "Created employee: " + employee.getFullName());
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to create employee in database");
             }
-            
-            return success;
+
         } catch (Exception e) {
-            System.err.println("Error creating employee: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error creating employee: " + e.getMessage());
+            System.err.println("HR Error creating employee: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
     /**
-     * Updates an existing employee record
-     * @param employee The employee with updated information
-     * @return true if successful, false otherwise
+     * Updates employee information
      */
-    public boolean updateEmployee(EmployeeModel employee) {
+    public HROperationResult updateEmployee(EmployeeModel employee) {
+        HROperationResult result = new HROperationResult();
+        
         try {
-            boolean success = employeeDAO.updateEmployee(employee);
-            if (success) {
-                System.out.println("Employee updated successfully: " + employee.getEmployeeId());
+            if (!hasPermission("MANAGE_EMPLOYEES")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to update employees");
+                return result;
             }
-            return success;
+
+            boolean success = employeeDAO.updateEmployee(employee);
+            
+            if (success) {
+                result.setSuccess(true);
+                result.setMessage("Employee updated successfully: " + employee.getEmployeeId());
+                logHRActivity("EMPLOYEE_UPDATED", "Updated employee: " + employee.getEmployeeId());
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to update employee");
+            }
+
         } catch (Exception e) {
-            System.err.println("Error updating employee: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error updating employee: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
     /**
      * Terminates an employee
-     * @param employeeId The ID of the employee to terminate
-     * @param reason Reason for termination
-     * @return true if successful, false otherwise
      */
-    public boolean terminateEmployee(int employeeId, String reason) {
+    public HROperationResult terminateEmployee(int employeeId, String reason) {
+        HROperationResult result = new HROperationResult();
+        
         try {
-            EmployeeModel employee = employeeDAO.getEmployeeById(employeeId);
-            if (employee == null) {
-                System.err.println("Employee not found: " + employeeId);
-                return false;
+            if (!hasPermission("MANAGE_EMPLOYEES")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to terminate employees");
+                return result;
             }
-            
+
+            EmployeeModel employee = employeeDAO.findById(employeeId);
+            if (employee == null) {
+                result.setSuccess(false);
+                result.setMessage("Employee not found: " + employeeId);
+                return result;
+            }
+
             employee.setStatus("Terminated");
-            boolean success = employeeDAO.updateEmployee(employee);
+            boolean success = employeeDAO.update(employee);
             
             if (success) {
-                // Also deactivate user account
+                // Deactivate user account
                 userAuthDAO.deactivateUser(employeeId);
-                System.out.println("Employee terminated: " + employeeId + " - Reason: " + reason);
+                
+                result.setSuccess(true);
+                result.setMessage("Employee terminated successfully");
+                logHRActivity("EMPLOYEE_TERMINATED", 
+                    "Terminated employee: " + employeeId + " - Reason: " + reason);
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to terminate employee");
             }
-            
-            return success;
+
         } catch (Exception e) {
-            System.err.println("Error terminating employee: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error terminating employee: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
+    // ================================
+    // PAYROLL MANAGEMENT OPERATIONS
+    // ================================
+
     /**
-     * Gets all employees
-     * @return List of all employees
+     * Processes payroll for all employees in a pay period
      */
-    public List<EmployeeModel> getAllEmployees() {
-        return employeeDAO.getAllEmployees();
-    }
-    
-    /**
-     * Gets employees by department
-     * @param department Department name
-     * @return List of employees in the department
-     */
-    public List<EmployeeModel> getEmployeesByDepartment(String department) {
-        return employeeDAO.getEmployeesByDepartment(department);
-    }
-    
-    /**
-     * Gets employees by status
-     * @param status Employee status (Regular, Probationary, Terminated)
-     * @return List of employees with the specified status
-     */
-    public List<EmployeeModel> getEmployeesByStatus(String status) {
-        return employeeDAO.getEmployeesByStatus(status);
-    }
-    
-    // Payroll Management Methods
-    
-    /**
-     * Processes payroll for all employees for a specific pay period
-     * @param payPeriodId The pay period ID
-     * @return true if successful, false otherwise
-     */
-    public boolean processPayrollForPeriod(int payPeriodId) {
+    public PayrollService.PayrollProcessingResult processPayrollForPeriod(Integer payPeriodId) {
         try {
-            List<EmployeeModel> activeEmployees = employeeDAO.getEmployeesByStatus("Regular");
-            activeEmployees.addAll(employeeDAO.getEmployeesByStatus("Probationary"));
-            
-            int processedCount = 0;
-            for (EmployeeModel employee : activeEmployees) {
-                if (processEmployeePayroll(employee.getEmployeeId(), payPeriodId)) {
-                    processedCount++;
-                }
+            if (!hasPermission("PROCESS_PAYROLL")) {
+                PayrollService.PayrollProcessingResult result = new PayrollService.PayrollProcessingResult();
+                result.setSuccess(false);
+                result.addError("Insufficient permissions to process payroll");
+                return result;
             }
+
+            PayrollService.PayrollProcessingResult result = payrollService.processPayrollForPeriod(payPeriodId);
             
-            System.out.println("Payroll processed for " + processedCount + " employees in pay period " + payPeriodId);
-            return processedCount > 0;
-            
+            if (result.isSuccess()) {
+                logHRActivity("PAYROLL_PROCESSED", 
+                    "Processed payroll for period: " + payPeriodId + 
+                    " - Employees: " + result.getProcessedEmployees());
+            }
+
+            return result;
+
         } catch (Exception e) {
-            System.err.println("Error processing payroll: " + e.getMessage());
-            return false;
+            PayrollService.PayrollProcessingResult result = new PayrollService.PayrollProcessingResult();
+            result.setSuccess(false);
+            result.addError("Error processing payroll: " + e.getMessage());
+            return result;
         }
     }
-    
+
     /**
-     * Processes payroll for a specific employee
-     * @param employeeId Employee ID
-     * @param payPeriodId Pay period ID
-     * @return true if successful, false otherwise
+     * Processes payroll for a single employee
      */
-    public boolean processEmployeePayroll(int employeeId, int payPeriodId) {
+    public HROperationResult processEmployeePayroll(int employeeId, int payPeriodId) {
+        HROperationResult result = new HROperationResult();
+        
         try {
-            EmployeeModel employee = employeeDAO.getEmployeeById(employeeId);
-            if (employee == null) {
-                return false;
+            if (!hasPermission("PROCESS_PAYROLL")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to process payroll");
+                return result;
             }
+
+            boolean success = payrollService.processEmployeePayroll(employeeId, payPeriodId);
             
-            // Calculate payroll components
-            PayrollModel payroll = calculatePayroll(employee, payPeriodId);
-            
-            // Save payroll record
-            return payrollDAO.addPayroll(payroll);
-            
+            if (success) {
+                result.setSuccess(true);
+                result.setMessage("Payroll processed successfully for employee: " + employeeId);
+                logHRActivity("EMPLOYEE_PAYROLL_PROCESSED", 
+                    "Processed payroll for employee: " + employeeId);
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to process payroll for employee");
+            }
+
         } catch (Exception e) {
-            System.err.println("Error processing employee payroll: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error processing payroll: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
     /**
-     * Calculates payroll for an employee
-     * @param employee The employee
-     * @param payPeriodId Pay period ID
-     * @return PayrollModel with calculated values
+     * Gets payroll summary for a pay period
      */
-    private PayrollModel calculatePayroll(EmployeeModel employee, int payPeriodId) {
-        PayrollModel payroll = new PayrollModel();
-        payroll.setEmployeeId(employee.getEmployeeId());
-        payroll.setPayPeriodId(payPeriodId);
-        payroll.setBasicSalary(employee.getBasicSalary());
+    public PayrollDAO.PayrollSummary getPayrollSummary(Integer payPeriodId) {
+        if (!hasPermission("PROCESS_PAYROLL")) {
+            System.err.println("HR: Insufficient permissions to view payroll summary");
+            return null;
+        }
         
-        // Calculate gross income (this is simplified - you'd need actual attendance/overtime data)
-        BigDecimal grossIncome = employee.getBasicSalary();
-        payroll.setGrossIncome(grossIncome);
-        
-        // Calculate deductions (simplified)
-        BigDecimal totalDeductions = calculateTotalDeductions(employee, grossIncome);
-        payroll.setTotalDeduction(totalDeductions);
-        
-        // Calculate benefits (simplified)
-        BigDecimal totalBenefits = calculateTotalBenefits(employee);
-        payroll.setTotalBenefit(totalBenefits);
-        
-        // Calculate net salary
-        BigDecimal netSalary = grossIncome.add(totalBenefits).subtract(totalDeductions);
-        payroll.setNetSalary(netSalary);
-        
-        return payroll;
+        return payrollService.getPayrollSummary(payPeriodId);
     }
-    
-    /**
-     * Calculates total deductions for an employee
-     * @param employee The employee
-     * @param grossIncome Gross income for the period
-     * @return Total deductions amount
-     */
-    private BigDecimal calculateTotalDeductions(EmployeeModel employee, BigDecimal grossIncome) {
-        // This is a simplified calculation - implement actual deduction logic
-        BigDecimal sss = grossIncome.multiply(new BigDecimal("0.045")); // 4.5% SSS
-        BigDecimal philhealth = grossIncome.multiply(new BigDecimal("0.0175")); // 1.75% PhilHealth
-        BigDecimal pagibig = new BigDecimal("100.00"); // Fixed Pag-IBIG
-        
-        return sss.add(philhealth).add(pagibig);
-    }
-    
-    /**
-     * Calculates total benefits for an employee
-     * @param employee The employee
-     * @return Total benefits amount
-     */
-    private BigDecimal calculateTotalBenefits(EmployeeModel employee) {
-        // This is simplified - implement actual benefit calculation based on position
-        return new BigDecimal("2000.00"); // Fixed benefits for now
-    }
-    
-    // Leave Management Methods
-    
+
+    // ================================
+    // LEAVE MANAGEMENT OPERATIONS
+    // ================================
+
     /**
      * Approves a leave request
-     * @param leaveRequestId Leave request ID
-     * @param supervisorNotes Notes from supervisor
-     * @return true if successful, false otherwise
      */
-    public boolean approveLeaveRequest(int leaveRequestId, String supervisorNotes) {
+    public LeaveApprovalResult approveLeaveRequest(Integer leaveRequestId, String supervisorNotes) {
         try {
-            return leaveRequestDAO.updateLeaveRequestStatus(leaveRequestId, 
-                    ApprovalStatus.APPROVED.getValue(), supervisorNotes);
+            if (!hasPermission("APPROVE_LEAVES")) {
+                LeaveApprovalResult result = new LeaveApprovalResult();
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to approve leave requests");
+                return result;
+            }
+
+            LeaveApprovalResult result = leaveService.approveLeaveRequest(
+                leaveRequestId, getEmployeeId(), supervisorNotes);
+            
+            if (result.isSuccess()) {
+                logHRActivity("LEAVE_APPROVED", "Approved leave request: " + leaveRequestId);
+            }
+
+            return result;
+
         } catch (Exception e) {
-            System.err.println("Error approving leave request: " + e.getMessage());
-            return false;
+            LeaveApprovalResult result = new LeaveApprovalResult();
+            result.setSuccess(false);
+            result.setMessage("Error approving leave request: " + e.getMessage());
+            return result;
         }
     }
-    
+
     /**
      * Rejects a leave request
-     * @param leaveRequestId Leave request ID
-     * @param supervisorNotes Notes from supervisor
-     * @return true if successful, false otherwise
      */
-    public boolean rejectLeaveRequest(int leaveRequestId, String supervisorNotes) {
+    public LeaveApprovalResult rejectLeaveRequest(Integer leaveRequestId, String supervisorNotes) {
         try {
-            return leaveRequestDAO.updateLeaveRequestStatus(leaveRequestId, 
-                    ApprovalStatus.REJECTED.getValue(), supervisorNotes);
+            if (!hasPermission("APPROVE_LEAVES")) {
+                LeaveApprovalResult result = new LeaveApprovalResult();
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to reject leave requests");
+                return result;
+            }
+
+            LeaveApprovalResult result = leaveService.rejectLeaveRequest(
+                leaveRequestId, getEmployeeId(), supervisorNotes);
+            
+            if (result.isSuccess()) {
+                logHRActivity("LEAVE_REJECTED", "Rejected leave request: " + leaveRequestId);
+            }
+
+            return result;
+
         } catch (Exception e) {
-            System.err.println("Error rejecting leave request: " + e.getMessage());
-            return false;
+            LeaveApprovalResult result = new LeaveApprovalResult();
+            result.setSuccess(false);
+            result.setMessage("Error rejecting leave request: " + e.getMessage());
+            return result;
         }
     }
-    
-    // User Management Methods
-    
+
     /**
-     * Creates a new user account
-     * @param email User email
-     * @param password User password
-     * @param userRole User role
-     * @param firstName First name
-     * @param lastName Last name
-     * @param positionId Position ID
-     * @return true if successful, false otherwise
+     * Gets all pending leave requests
      */
-    public boolean createUserAccount(String email, String password, String userRole, 
-                                   String firstName, String lastName, int positionId) {
+    public List<LeaveRequestModel> getPendingLeaveRequests() {
+        if (!hasPermission("APPROVE_LEAVES")) {
+            System.err.println("HR: Insufficient permissions to view leave requests");
+            return List.of();
+        }
+        
+        return leaveService.getPendingLeaveRequests();
+    }
+
+    /**
+     * Gets leave summary for an employee
+     */
+    public LeaveService.LeaveSummary getEmployeeLeaveSummary(Integer employeeId, Integer year) {
+        if (!hasPermission("APPROVE_LEAVES")) {
+            System.err.println("HR: Insufficient permissions to view leave summaries");
+            return null;
+        }
+        
+        return leaveService.getEmployeeLeaveSummary(employeeId, year);
+    }
+
+    // ================================
+    // ATTENDANCE MANAGEMENT OPERATIONS
+    // ================================
+
+    /**
+     * Gets daily attendance report
+     */
+    public List<AttendanceService.DailyAttendanceRecord> getDailyAttendanceReport(LocalDate date) {
+        if (!hasPermission("VIEW_ALL_ATTENDANCE")) {
+            System.err.println("HR: Insufficient permissions to view attendance reports");
+            return List.of();
+        }
+        
+        return attendanceService.getDailyAttendanceReport(date);
+    }
+
+    /**
+     * Gets monthly attendance summary for an employee
+     */
+    public AttendanceService.AttendanceSummary getMonthlyAttendanceSummary(
+            Integer employeeId, YearMonth yearMonth) {
+        if (!hasPermission("VIEW_ALL_ATTENDANCE")) {
+            System.err.println("HR: Insufficient permissions to view attendance summaries");
+            return null;
+        }
+        
+        return attendanceService.getMonthlyAttendanceSummary(employeeId, yearMonth);
+    }
+
+    /**
+     * Gets employees with perfect attendance
+     */
+    public List<Integer> getEmployeesWithPerfectAttendance(YearMonth yearMonth) {
+        if (!hasPermission("VIEW_ALL_ATTENDANCE")) {
+            System.err.println("HR: Insufficient permissions to view attendance data");
+            return List.of();
+        }
+        
+        return attendanceService.getEmployeesWithPerfectAttendance(yearMonth);
+    }
+
+    // ================================
+    // OVERTIME MANAGEMENT OPERATIONS
+    // ================================
+
+    /**
+     * Approves overtime request
+     */
+    public OvertimeService.OvertimeApprovalResult approveOvertimeRequest(
+            Integer overtimeRequestId, String supervisorNotes) {
         try {
+            if (!hasPermission("APPROVE_LEAVES")) { // Using same permission as leaves
+                OvertimeService.OvertimeApprovalResult result = new OvertimeService.OvertimeApprovalResult();
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to approve overtime requests");
+                return result;
+            }
+
+            OvertimeService.OvertimeApprovalResult result = overtimeService.approveOvertimeRequest(
+                overtimeRequestId, getEmployeeId(), supervisorNotes);
+            
+            if (result.isSuccess()) {
+                logHRActivity("OVERTIME_APPROVED", "Approved overtime request: " + overtimeRequestId);
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            OvertimeService.OvertimeApprovalResult result = new OvertimeService.OvertimeApprovalResult();
+            result.setSuccess(false);
+            result.setMessage("Error approving overtime request: " + e.getMessage());
+            return result;
+        }
+    }
+
+    /**
+     * Gets pending overtime requests
+     */
+    public List<OvertimeRequestModel> getPendingOvertimeRequests() {
+        if (!hasPermission("APPROVE_LEAVES")) {
+            System.err.println("HR: Insufficient permissions to view overtime requests");
+            return List.of();
+        }
+        
+        return overtimeService.getPendingOvertimeRequests();
+    }
+
+    // ================================
+    // REPORTING OPERATIONS
+    // ================================
+
+    /**
+     * Generates comprehensive payroll report
+     */
+    public ReportService.PayrollReport generatePayrollReport(Integer payPeriodId) {
+        if (!hasPermission("GENERATE_REPORTS")) {
+            ReportService.PayrollReport report = new ReportService.PayrollReport();
+            report.setSuccess(false);
+            report.setErrorMessage("Insufficient permissions to generate reports");
+            return report;
+        }
+        
+        ReportService.PayrollReport report = reportService.generatePayrollReport(payPeriodId);
+        
+        if (report.isSuccess()) {
+            logHRActivity("REPORT_GENERATED", "Generated payroll report for period: " + payPeriodId);
+        }
+        
+        return report;
+    }
+
+    /**
+     * Generates daily attendance report
+     */
+    public ReportService.AttendanceReport generateDailyAttendanceReport(LocalDate date) {
+        if (!hasPermission("GENERATE_REPORTS")) {
+            ReportService.AttendanceReport report = new ReportService.AttendanceReport();
+            report.setSuccess(false);
+            report.setErrorMessage("Insufficient permissions to generate reports");
+            return report;
+        }
+        
+        return reportService.generateDailyAttendanceReport(date);
+    }
+
+    /**
+     * Generates monthly attendance report
+     */
+    public ReportService.MonthlyAttendanceReport generateMonthlyAttendanceReport(YearMonth yearMonth) {
+        if (!hasPermission("GENERATE_REPORTS")) {
+            ReportService.MonthlyAttendanceReport report = new ReportService.MonthlyAttendanceReport();
+            report.setSuccess(false);
+            report.setErrorMessage("Insufficient permissions to generate reports");
+            return report;
+        }
+        
+        return reportService.generateMonthlyAttendanceReport(yearMonth);
+    }
+
+    /**
+     * Generates leave report
+     */
+    public ReportService.LeaveReport generateLeaveReport(Integer year) {
+        if (!hasPermission("GENERATE_REPORTS")) {
+            ReportService.LeaveReport report = new ReportService.LeaveReport();
+            report.setSuccess(false);
+            report.setErrorMessage("Insufficient permissions to generate reports");
+            return report;
+        }
+        
+        return reportService.generateLeaveReport(year);
+    }
+
+    /**
+     * Generates overtime report
+     */
+    public ReportService.OvertimeReport generateOvertimeReport(LocalDate startDate, LocalDate endDate) {
+        if (!hasPermission("GENERATE_REPORTS")) {
+            ReportService.OvertimeReport report = new ReportService.OvertimeReport();
+            report.setSuccess(false);
+            report.setErrorMessage("Insufficient permissions to generate reports");
+            return report;
+        }
+        
+        return reportService.generateOvertimeReport(startDate, endDate);
+    }
+
+    /**
+     * Generates compliance report
+     */
+    public ReportService.ComplianceReport generateComplianceReport(YearMonth yearMonth) {
+        if (!hasPermission("GENERATE_REPORTS")) {
+            ReportService.ComplianceReport report = new ReportService.ComplianceReport();
+            report.setSuccess(false);
+            report.setErrorMessage("Insufficient permissions to generate reports");
+            return report;
+        }
+        
+        return reportService.generateComplianceReport(yearMonth);
+    }
+
+    // ================================
+    // UTILITY AND HELPER METHODS
+    // ================================
+
+    /**
+     * Checks if HR user has specific permission
+     */
+    private boolean hasPermission(String permission) {
+        // HR role has all permissions in this system
+        for (String hrPermission : HR_PERMISSIONS) {
+            if (hrPermission.equals(permission)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Gets all HR permissions
+     */
+    public String[] getHRPermissions() {
+        return HR_PERMISSIONS.clone();
+    }
+
+    /**
+     * Logs HR activities for audit purposes
+     */
+    private void logHRActivity(String action, String details) {
+        try {
+            String logMessage = String.format("[HR AUDIT] %s - %s: %s (Performed by: %s - ID: %d)",
+                LocalDate.now(), action, details, getFullName(), getEmployeeId());
+            System.out.println(logMessage);
+            
+            // In a real implementation, you'd save this to an audit log table
+            // auditLogDAO.saveLog(getEmployeeId(), action, details, LocalDateTime.now());
+            
+        } catch (Exception e) {
+            System.err.println("Error logging HR activity: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Gets employee by ID (with permission check)
+     */
+    public EmployeeModel getEmployeeById(int employeeId) {
+        if (!hasPermission("MANAGE_EMPLOYEES")) {
+            System.err.println("HR: Insufficient permissions to view employee details");
+            return null;
+        }
+        
+        return employeeDAO.findById(employeeId);
+    }
+
+    /**
+     * Gets all employees (with permission check)
+     */
+    public List<EmployeeModel> getAllEmployees() {
+        if (!hasPermission("MANAGE_EMPLOYEES")) {
+            System.err.println("HR: Insufficient permissions to view all employees");
+            return List.of();
+        }
+        
+        return employeeDAO.getActiveEmployees();
+    }
+
+    /**
+     * Creates user account for employee
+     */
+    public HROperationResult createUserAccount(String email, String password, String userRole,
+            String firstName, String lastName, int positionId) {
+        HROperationResult result = new HROperationResult();
+        
+        try {
+            if (!hasPermission("SYSTEM_ADMINISTRATION")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to create user accounts");
+                return result;
+            }
+
             if (userAuthDAO.emailExists(email)) {
-                System.err.println("Email already exists: " + email);
-                return false;
+                result.setSuccess(false);
+                result.setMessage("Email already exists: " + email);
+                return result;
             }
+
+            boolean success = userAuthDAO.createUser(email, password, userRole, firstName, lastName, positionId);
             
-            return userAuthDAO.createUser(email, password, userRole, firstName, lastName, positionId);
-        } catch (Exception e) {
-            System.err.println("Error creating user account: " + e.getMessage());
-            return false;
-        }
-    }
-    
-    /**
-     * Resets a user's password
-     * @param employeeId Employee ID
-     * @param newPassword New password
-     * @return true if successful, false otherwise
-     */
-    public boolean resetUserPassword(int employeeId, String newPassword) {
-        try {
-            return userAuthDAO.updatePassword(employeeId, newPassword);
-        } catch (Exception e) {
-            System.err.println("Error resetting password: " + e.getMessage());
-            return false;
-        }
-    }
-    
-    // Report Generation Methods
-    
-    /**
-     * Generates employee summary report
-     * @return Report data as string
-     */
-    public String generateEmployeeReport() {
-        try {
-            List<EmployeeModel> employees = getAllEmployees();
-            StringBuilder report = new StringBuilder();
-            report.append("EMPLOYEE SUMMARY REPORT\n");
-            report.append("Generated: ").append(LocalDate.now()).append("\n\n");
-            
-            int regular = 0, probationary = 0, terminated = 0;
-            
-            for (EmployeeModel emp : employees) {
-                switch (emp.getStatus()) {
-                    case "Regular": regular++; break;
-                    case "Probationary": probationary++; break;
-                    case "Terminated": terminated++; break;
-                }
+            if (success) {
+                result.setSuccess(true);
+                result.setMessage("User account created successfully: " + email);
+                logHRActivity("USER_CREATED", "Created user account: " + email + " (" + userRole + ")");
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to create user account");
             }
-            
-            report.append("Total Employees: ").append(employees.size()).append("\n");
-            report.append("Regular: ").append(regular).append("\n");
-            report.append("Probationary: ").append(probationary).append("\n");
-            report.append("Terminated: ").append(terminated).append("\n");
-            
-            return report.toString();
+
         } catch (Exception e) {
-            System.err.println("Error generating employee report: " + e.getMessage());
-            return "Error generating report";
+            result.setSuccess(false);
+            result.setMessage("Error creating user account: " + e.getMessage());
         }
+
+        return result;
     }
-    
-    /**
-     * Generates payroll summary report for a pay period
-     * @param payPeriodId Pay period ID
-     * @return Report data as string
-     */
-    public String generatePayrollReport(int payPeriodId) {
-        try {
-            List<PayrollModel> payrolls = payrollDAO.getPayrollsByPeriod(payPeriodId);
-            StringBuilder report = new StringBuilder();
-            report.append("PAYROLL SUMMARY REPORT\n");
-            report.append("Pay Period: ").append(payPeriodId).append("\n");
-            report.append("Generated: ").append(LocalDate.now()).append("\n\n");
-            
-            BigDecimal totalGross = BigDecimal.ZERO;
-            BigDecimal totalNet = BigDecimal.ZERO;
-            BigDecimal totalDeductions = BigDecimal.ZERO;
-            
-            for (PayrollModel payroll : payrolls) {
-                totalGross = totalGross.add(payroll.getGrossIncome());
-                totalNet = totalNet.add(payroll.getNetSalary());
-                totalDeductions = totalDeductions.add(payroll.getTotalDeduction());
-            }
-            
-            report.append("Employees Processed: ").append(payrolls.size()).append("\n");
-            report.append("Total Gross Pay: ").append(totalGross).append("\n");
-            report.append("Total Deductions: ").append(totalDeductions).append("\n");
-            report.append("Total Net Pay: ").append(totalNet).append("\n");
-            
-            return report.toString();
-        } catch (Exception e) {
-            System.err.println("Error generating payroll report: " + e.getMessage());
-            return "Error generating report";
-        }
-    }
-    
+
     @Override
     public String toString() {
         return "HR{" +
                 "employeeId=" + getEmployeeId() +
-                ", name='" + getFirstName() + " " + getLastName() + '\'' +
+                ", name='" + getFullName() + '\'' +
                 ", email='" + getEmail() + '\'' +
-                ", role='" + getUserRole() + '\'' +
+                ", permissions=" + java.util.Arrays.toString(HR_PERMISSIONS) +
                 '}';
+    }
+
+    // ================================
+    // INNER CLASSES
+    // ================================
+
+    /**
+     * Result class for HR operations
+     */
+    public static class HROperationResult {
+        private boolean success = false;
+        private String message = "";
+        private Integer employeeId;
+        private Map<String, Object> additionalData;
+
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        
+        public Integer getEmployeeId() { return employeeId; }
+        public void setEmployeeId(Integer employeeId) { this.employeeId = employeeId; }
+        
+        public Map<String, Object> getAdditionalData() { return additionalData; }
+        public void setAdditionalData(Map<String, Object> additionalData) { this.additionalData = additionalData; }
+
+        @Override
+        public String toString() {
+            return "HROperationResult{success=" + success + ", message='" + message + "'}";
+        }
     }
 }
