@@ -1,225 +1,325 @@
 package oop.classes.management;
 
-import CSV.CSVDatabaseProcessor;
-import java.util.List;
-import java.util.Map;
-import oop.classes.actors.Accounting;
-import oop.classes.actors.Employee;
-import oop.classes.actors.HR;
-import oop.classes.actors.IT;
-import oop.classes.actors.ImmediateSupervisor;
-import oop.classes.actors.User;
+import DAOs.UserAuthenticationDAO;
+import DAOs.EmployeeDAO;
+import DAOs.DatabaseConnection;
+import Models.UserAuthenticationModel;
+import Models.EmployeeModel;
+import oop.classes.actors.*;
 
-
-/**
- * This class authenticates the user credentials inputted in the log in
- * @author Admin
+/** Enhanced UserAuthentication class for MySQL/JDBC system
+ * Handles user authentication by validating credentials from the database
+ * and creates appropriate user role objects
+ * @author chadley
  */
 
-/**
- * Handles user authentication by validating credentials from a CSV database.
- * It determines the user's role and creates the appropriate user object.
- */
 public class UserAuthentication {
-   private final CSVDatabaseProcessor databaseProcessor;
+  
+    private final UserAuthenticationDAO userAuthDAO;
+    private final EmployeeDAO employeeDAO;
+    private final DatabaseConnection databaseConnection;
 
     /**
-     * Initializes the authentication system with a database processor.
-     * @param databaseProcessor The CSV database handler.
+     * Constructor for UserAuthentication
      */
-    public UserAuthentication(CSVDatabaseProcessor databaseProcessor) {
-        this.databaseProcessor = databaseProcessor;
+    public UserAuthentication() {
+        this.databaseConnection = new DatabaseConnection();
+        this.userAuthDAO = new UserAuthenticationDAO();
+        this.employeeDAO = new EmployeeDAO(databaseConnection);
     }
 
-     /**
-     * Validates the given email and password against stored credentials.
-     * @param email User's email.
-     * @param password User's password.
-     * @return A User object if authentication is successful; otherwise, null.
+    /**
+     * Constructor with custom database connection
+     * @param databaseConnection Custom database connection
      */
-    public User validateCredentials(String email, String password) {
-        
-        // Get all stored user credentials from the database
-        List<Map<String, String>> userCredentialRecords = databaseProcessor.getAllUserCredentialRecords();
-        
-        // If no credentials exist, return null
-        if (userCredentialRecords == null || userCredentialRecords.isEmpty()) {
-            System.out.println("No user credentials found. Please check if the CSV file is loaded.");
-            return null;
-        }
-        
-        
-
-        // Loop through the credentials and check if the input matches any stored record        
-        for (Map<String, String> record : userCredentialRecords) {
-            String storedEmail = record.get("Email");
-            String storedPassword = record.get("Password");
-        
-            // Credentials match, retrieve employee details
-            if (email.equals(storedEmail) && password.equals(storedPassword)) {
-                try {
-                    int employeeID = Integer.parseInt(record.get("Employee ID"));
-                    return getUserByID(employeeID); // Retrieve the User object
-                } catch (NumberFormatException e) {
-                    System.err.println("Invalid Employee ID format: " + record.get("Employee ID"));
-                    return null;
-                }
-            }
-        }
-        return null; // Return null if no matching credentials are found
+    public UserAuthentication(DatabaseConnection databaseConnection) {
+        this.databaseConnection = databaseConnection;
+        this.userAuthDAO = new UserAuthenticationDAO();
+        this.employeeDAO = new EmployeeDAO(databaseConnection);
     }
 
-     /**
-     * Retrieves an employee's details by their ID.
-     * @param employeeID The employee's unique identifier.
-     * @return A User object if the employee exists; otherwise, null.
+    /**
+     * Validates user credentials and returns appropriate User object
+     * @param email User's email address
+     * @param password User's password
+     * @return User object if authentication successful, null otherwise
      */
-    private User getUserByID(int employeeID) {
-        // Fetch the employee's record from the database
-        Map<String, String> employeeRecord = databaseProcessor.getEmployeeRecordsByEmployeeId(String.valueOf(employeeID));
-
-        if (employeeRecord != null) {
-            try {
-                return createUserFromRecord(employeeRecord); // Create the appropriate User object
-            } catch (Exception e) {
-                System.err.println("Error creating user from record: " + e.getMessage());
-                // Debug information
-                System.err.println("Employee ID: " + employeeID);
-                if (employeeRecord != null) {
-                    for (Map.Entry<String, String> entry : employeeRecord.entrySet()) {
-                        System.err.println(entry.getKey() + ": " + entry.getValue());
-                    }
-                }
+    public Object validateCredentials(String email, String password) {
+        try {
+            // Use your existing UserAuthenticationDAO.authenticateUser method
+            UserAuthenticationModel authUser = userAuthDAO.authenticateUser(email, password);
+            
+            if (authUser == null) {
+                System.out.println("Invalid credentials for email: " + email);
                 return null;
             }
-        }
-        return null; // Employee not found
-    }
 
-     /**
-     * Creates a User object based on the employee record.
-     * @param record The employee's data retrieved from the database.
-     * @return A specific User object depending on their role.
-     */
-    private User createUserFromRecord(Map<String, String> record) {
-        // Validating the record has all required fields
-        String[] requiredFields = {"Employee ID", "First Name", "Last Name", "Position"};
-        for (String field : requiredFields) {
-            if (record.get(field) == null || record.get(field).isEmpty()) {
-                throw new IllegalArgumentException("Missing required field: " + field);
+            // Check if account is active (already done in authenticateUser, but double-check)
+            if (!authUser.isAccountActive()) {
+                System.out.println("Account is deactivated for email: " + email);
+                return null;
             }
-        }
-        
-        int employeeID = Integer.parseInt(record.get("Employee ID"));
-        String firstName = record.get("First Name");
-        String lastName = record.get("Last Name");
-        String email = record.get("Email");
-        String password = record.get("Password");
-        String position = record.get("Position");
-        
-        // Debug information
-        System.out.println("Creating user with position: " + position);
 
-        // Determine the role based on the position
-        String role = determineUserRole(position);
-
-        // Create the appropriate User object based on the role
-        switch (role) {
-            case "HR":
-                return new HR(employeeID, firstName, lastName, email, password, role);
-            case "EMPLOYEE":
-                return new Employee(employeeID, firstName, lastName, email, password, role);
-            case "IT":
-                return new IT(employeeID, firstName, lastName, email, password, role);
-            case "IMMEDIATE SUPERVISOR":
-                return new ImmediateSupervisor(employeeID, firstName, lastName, email, password, role);
-            case "ACCOUNTING":
-                return new Accounting(employeeID, firstName, lastName, email, password, role);
+            // Get employee details
+            EmployeeModel employee = employeeDAO.findById(authUser.getEmployeeId());
             
-            default:
-                throw new IllegalArgumentException("Invalid role: " + role);
+            if (employee == null) {
+                System.err.println("Employee record not found for ID: " + authUser.getEmployeeId());
+                return null;
+            }
+
+            // Create appropriate user object based on role
+            return createUserFromEmployee(employee, authUser.getUserRole());
+
+        } catch (Exception e) {
+            System.err.println("Error during authentication: " + e.getMessage());
+            e.printStackTrace();
+            return null;
         }
     }
 
-     /**
-     * Determines the user's role based on their job position.
-     * @param position The job title of the user.
-     * @return The role category (e.g., "HR", "EMPLOYEE", "IT", etc.).
+    /**
+     * Creates the appropriate User object based on employee data and role
+     * @param employee Employee model with employee details
+     * @param userRole User's system role
+     * @return Specific User object based on role
      */
-    private String determineUserRole(String position) {
-        if (position == null) {
-            throw new IllegalArgumentException("Position cannot be null");
+    private Object createUserFromEmployee(EmployeeModel employee, String userRole) {
+        
+        // Validate required fields
+        if (employee.getEmployeeId() == null || 
+            employee.getFirstName() == null || employee.getFirstName().isEmpty() ||
+            employee.getLastName() == null || employee.getLastName().isEmpty() ||
+            employee.getEmail() == null || employee.getEmail().isEmpty()) {
+            
+            throw new IllegalArgumentException("Missing required employee fields");
+        }
+
+        int employeeId = employee.getEmployeeId();
+        String firstName = employee.getFirstName();
+        String lastName = employee.getLastName();
+        String email = employee.getEmail();
+        
+        // Normalize user role
+        userRole = normalizeUserRole(userRole);
+        
+        System.out.println("Creating user object for: " + firstName + " " + lastName + 
+                          " with role: " + userRole);
+
+        // Create appropriate User object based on role
+        switch (userRole.toUpperCase()) {
+            case "HR":
+                return new HR(employeeId, firstName, lastName, email, userRole);
+                
+            case "IT":
+                return new IT(employeeId, firstName, lastName, email, userRole);
+                
+            case "ACCOUNTING":
+                return new Accounting(employeeId, firstName, lastName, email, userRole);
+                
+            case "IMMEDIATESUPERVISOR":
+            case "IMMEDIATE_SUPERVISOR":
+            case "SUPERVISOR":
+                // Create supervisor without department for now (you can add department later)
+                return new ImmediateSupervisor(employeeId, firstName, lastName, email, userRole);
+                
+            case "EMPLOYEE":
+            default:
+                // For regular employees or unrecognized roles, create Employee object
+                return new Employee(employeeId, firstName, lastName, email, "defaultPassword", "Employee");
+        }
+    }
+
+    /**
+     * Normalizes user role string to standard format
+     * @param userRole Raw user role from database
+     * @return Normalized user role
+     */
+    private String normalizeUserRole(String userRole) {
+        if (userRole == null || userRole.trim().isEmpty()) {
+            return "EMPLOYEE"; // Default role
         }
         
-        // Normalize the position by trimming whitespace
-        position = position.trim();
+        // Clean up the role string
+        userRole = userRole.trim().toUpperCase();
         
-        // Check for numeric values which would indicate an error
-        if (position.matches("\\d+")) {
-            throw new IllegalArgumentException("Position appears to be a numeric ID instead of a job title: " + position);
+        // Handle common variations
+        switch (userRole) {
+            case "IMMEDIATE SUPERVISOR":
+            case "IMMEDIATE_SUPERVISOR":
+            case "IMMEDIATESUPERVISOR":
+            case "SUPERVISOR":
+                return "IMMEDIATESUPERVISOR";
+                
+            case "HUMAN RESOURCES":
+            case "HR":
+                return "HR";
+                
+            case "INFORMATION TECHNOLOGY":
+            case "IT":
+                return "IT";
+                
+            case "ACCOUNTING":
+            case "PAYROLL":
+                return "ACCOUNTING";
+                
+            default:
+                return "EMPLOYEE";
         }
-        
-        // Check for executive positions (immediate supervisors)
-        if (position.equals("Chief Executive Officer") ||
-            position.equals("Chief Operating Officer") ||
-            position.equals("Chief Finance Officer") ||
-            position.equals("Chief Marketing Officer") ||
-            position.equals("Account Manager") ||
-            position.equals("Account Team Leader")) {
-            return "IMMEDIATE SUPERVISOR";
-        }
-        
-        // Check for IT position
-        else if (position.equals("IT Operations and Systems")) {
-            return "IT";
-        }
-        
-        // Check for HR positions
-        else if (position.equals("HR Manager") ||
-                 position.equals("HR Team Leader") ||
-                 position.equals("HR Rank and File")) {
-            return "HR";
-        }
-        
-        // Check for Accounting positions
-        else if (position.equals("Accounting Head") ||
-                 position.equals("Payroll Manager") ||
-                 position.equals("Payroll Team Leader") ||
-                 position.equals("Payroll Rank and File")) {
-            return "ACCOUNTING";
-        }
-        
-        // Check for regular employee positions
-        else if (position.equals("Account Rank and File") ||
-                 position.equals("Sales & Marketing") ||
-                 position.equals("Supply Chain and Logistics") ||
-                 position.equals("Customer Service and Relations")) {
+    }
+
+    /**
+     * Determines user role based on job position (for legacy compatibility)
+     * @param position Job position/title
+     * @return Appropriate user role
+     */
+    public String determineUserRoleFromPosition(String position) {
+        if (position == null || position.trim().isEmpty()) {
             return "EMPLOYEE";
         }
         
-        // If position doesn't match any known roles, use a default role based on keywords
+        position = position.trim().toLowerCase();
+        
+        // Executive positions - Immediate Supervisors
+        if (position.contains("chief") || position.contains("ceo") || position.contains("coo") ||
+            position.contains("cfo") || position.contains("cmo") || position.contains("manager") ||
+            position.contains("team leader") || position.contains("supervisor")) {
+            return "IMMEDIATESUPERVISOR";
+        }
+        
+        // IT positions
+        else if (position.contains("it") || position.contains("information tech") || 
+                position.contains("system") || position.contains("developer") ||
+                position.contains("programmer")) {
+            return "IT";
+        }
+        
+        // HR positions
+        else if (position.contains("hr") || position.contains("human resource")) {
+            return "HR";
+        }
+        
+        // Accounting positions
+        else if (position.contains("accounting") || position.contains("payroll") || 
+                position.contains("finance") || position.contains("bookkeep")) {
+            return "ACCOUNTING";
+        }
+        
+        // Default to employee
         else {
-            System.out.println("Position not directly matched: '" + position + "'. Attempting to infer role.");
+            return "EMPLOYEE";
+        }
+    }
+
+    /**
+     * Validates if user has permission to access specific role features
+     * @param user User object to check
+     * @param requiredRole Required role for access
+     * @return true if user has required permissions
+     */
+    public boolean hasRolePermission(User user, String requiredRole) {
+        if (user == null || requiredRole == null) {
+            return false;
+        }
+        
+        String userRole = user.getRole();
+        if (userRole == null) {
+            return false;
+        }
+        
+        // Normalize roles for comparison
+        userRole = normalizeUserRole(userRole);
+        requiredRole = normalizeUserRole(requiredRole);
+        
+        return userRole.equals(requiredRole);
+    }
+
+    /**
+     * Gets user by employee ID (for system operations)
+     * @param employeeId Employee ID
+     * @return User object if found, null otherwise
+     */
+    public Object getUserByEmployeeId(Integer employeeId) {
+        try {
+            EmployeeModel employee = employeeDAO.findById(employeeId);
+            if (employee == null) {
+                return null;
+            }
             
-            // Try to infer the role from the position name
-            position = position.toLowerCase();
+            // Get user role from authentication table using your existing method
+            UserAuthenticationModel authUser = userAuthDAO.getUserById(employeeId);
+            if (authUser == null) {
+                // Fallback to employee model role if auth user not found
+                String userRole = employee.getUserRole() != null ? employee.getUserRole() : "EMPLOYEE";
+                return createUserFromEmployee(employee, userRole);
+            }
             
-            if (position.contains("hr") || position.contains("human resource")) {
-                return "HR";
+            return createUserFromEmployee(employee, authUser.getUserRole());
+            
+        } catch (Exception e) {
+            System.err.println("Error getting user by employee ID: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Checks if email exists in the system
+     * @param email Email to check
+     * @return true if email exists
+     */
+    public boolean emailExists(String email) {
+        return userAuthDAO.emailExists(email);
+    }
+
+    /**
+     * Updates user password
+     * @param employeeId Employee ID
+     * @param newPassword New password
+     * @return true if update successful
+     */
+    public boolean updatePassword(Integer employeeId, String newPassword) {
+        return userAuthDAO.updatePassword(employeeId, newPassword);
+    }
+
+    /**
+     * Deactivates user account
+     * @param employeeId Employee ID
+     * @return true if deactivation successful
+     */
+    public boolean deactivateUser(Integer employeeId) {
+        return userAuthDAO.deactivateUser(employeeId);
+    }
+
+    /**
+     * Logs authentication attempt for audit purposes
+     * @param email Email used for login
+     * @param success Whether login was successful
+     * @param ipAddress Optional IP address
+     */
+    private void logAuthenticationAttempt(String email, boolean success, String ipAddress) {
+        try {
+            String logMessage = String.format("[AUTH] %s - Email: %s, Success: %s, IP: %s",
+                java.time.LocalDateTime.now(), email, success, ipAddress != null ? ipAddress : "Unknown");
+            System.out.println(logMessage);
+            
+            // In a real implementation, you'd save this to an audit log table
+            // auditLogDAO.saveAuthLog(email, success, ipAddress, LocalDateTime.now());
+            
+        } catch (Exception e) {
+            System.err.println("Error logging authentication attempt: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Closes database connections
+     */
+    public void close() {
+        try {
+            if (databaseConnection != null) {
+                // Close any open connections if needed
             }
-            else if (position.contains("it") || position.contains("information tech") || position.contains("system")) {
-                return "IT";
-            }
-            else if (position.contains("account") || position.contains("payroll") || position.contains("financ")) {
-                return "ACCOUNTING";
-            }
-            else if (position.contains("manager") || position.contains("supervisor") || position.contains("lead")) {
-                return "IMMEDIATE SUPERVISOR";
-            }
-            else {
-                System.out.println("Unknown position detected: '" + position + "'. Defaulting to EMPLOYEE role.");
-                return "EMPLOYEE"; // Default to employee
-            }
+        } catch (Exception e) {
+            System.err.println("Error closing authentication resources: " + e.getMessage());
         }
     }
 }

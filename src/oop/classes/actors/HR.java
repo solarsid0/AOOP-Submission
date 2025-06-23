@@ -24,7 +24,7 @@ import java.util.Map;
  * Handles all HR-specific operations including employee management, 
  * payroll processing, leave management, and reporting
  */
-public class HR {
+public class HR extends User {
     
         // Employee information
     private int employeeId;

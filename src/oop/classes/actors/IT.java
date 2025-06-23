@@ -18,7 +18,7 @@ import java.util.UUID;
  * Focuses on user management, system maintenance, database operations, and security
  */
 
-public class IT {
+public class IT extends User {
     
     // Employee information
     private int employeeId;

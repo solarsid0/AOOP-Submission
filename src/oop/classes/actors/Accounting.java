@@ -21,7 +21,7 @@ import java.util.ArrayList;
  * and financial reporting with proper accounting permissions
  */
 
-public class Accounting {
+public class Accounting extends User {
 
     // Employee information
     private int employeeId;

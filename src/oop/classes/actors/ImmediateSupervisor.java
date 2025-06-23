@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
  * and monitoring team performance
  */
 
-public class ImmediateSupervisor 
+public class ImmediateSupervisor extends User
 {
     // Employee information
     private int employeeId;
