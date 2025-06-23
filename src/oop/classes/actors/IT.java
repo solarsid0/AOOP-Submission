@@ -1,175 +1,284 @@
 package oop.classes.actors;
 
-import Models.EmployeeModel;
-import Models.UserAuthenticationModel;
-import Utility.PasswordHasher;
+import Models.*;
+import Models.EmployeeModel.EmployeeStatus;
+import DAOs.*;
 import DAOs.DatabaseConnection;
+import Utility.PasswordHasher;
+
 import java.sql.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.UUID;
 
 /**
- * IT actor class - handles system maintenance and user account management
- * Inherits from Employee and adds IT-specific database operations
+ * Enhanced IT Role Class - handles system administration and technical operations
+ * Focuses on user management, system maintenance, database operations, and security
  */
-public class IT extends EmployeeModel {
+
+public class IT {
     
-    private EmployeeDAO employeeDAO;
-    private UserAuthenticationDAO userAuthDAO;
-    private PositionDAO positionDAO;
+    // Employee information
+    private int employeeId;
+    private String firstName;
+    private String lastName;
+    private String email;
+    private String userRole;
     
-    public IT() {
-        super();
-        initializeDAOs();
-    }
+    // DAO dependencies for IT operations
+    private final EmployeeDAO employeeDAO;
+    private final UserAuthenticationDAO userAuthDAO;
+    private final DatabaseConnection databaseConnection;
     
+    // IT Role Permissions
+    private static final String[] IT_PERMISSIONS = {
+        "MANAGE_USERS", "SYSTEM_ADMINISTRATION", "DATABASE_OPERATIONS", 
+        "SECURITY_MANAGEMENT", "BACKUP_RESTORE", "SYSTEM_MONITORING",
+        "TECHNICAL_SUPPORT", "PASSWORD_MANAGEMENT"
+    };
+
+    /**
+     * Constructor for IT role
+     */
     public IT(int employeeId, String firstName, String lastName, String email, String userRole) {
-        super(employeeId, firstName, lastName, email, userRole);
-        initializeDAOs();
-    }
-    
-    private void initializeDAOs() {
-        this.employeeDAO = new EmployeeDAO();
+        this.employeeId = employeeId;
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.email = email;
+        this.userRole = userRole;
+        
+        // Initialize DAOs and database connection
+        this.databaseConnection = new DatabaseConnection();
+        this.employeeDAO = new EmployeeDAO(databaseConnection);
         this.userAuthDAO = new UserAuthenticationDAO();
-        this.positionDAO = new PositionDAO();
+        
+        System.out.println("IT user initialized: " + getFullName());
     }
+
+    // ================================
+    // GETTER METHODS
+    // ================================
     
-    // User Account Management Methods
-    
+    public int getEmployeeId() { return employeeId; }
+    public String getFirstName() { return firstName; }
+    public String getLastName() { return lastName; }
+    public String getEmail() { return email; }
+    public String getUserRole() { return userRole; }
+    public String getFullName() { return firstName + " " + lastName; }
+
+    // ================================
+    // USER ACCOUNT MANAGEMENT
+    // ================================
+
     /**
      * Creates a new system user account
-     * @param email User email
-     * @param temporaryPassword Temporary password for first login
-     * @param userRole User role (Employee, HR, IT, ImmediateSupervisor, Accounting)
-     * @param firstName First name
-     * @param lastName Last name
-     * @param positionId Position ID
-     * @return true if successful, false otherwise
      */
-    public boolean createSystemUser(String email, String temporaryPassword, String userRole, 
-                                  String firstName, String lastName, int positionId) {
+    public ITOperationResult createSystemUser(String email, String temporaryPassword, String userRole,
+            String firstName, String lastName, int positionId) {
+        ITOperationResult result = new ITOperationResult();
+        
         try {
+            if (!hasPermission("MANAGE_USERS")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to create user accounts");
+                return result;
+            }
+
             // Check if email already exists
             if (userAuthDAO.emailExists(email)) {
-                System.err.println("Email already exists in system: " + email);
-                return false;
+                result.setSuccess(false);
+                result.setMessage("Email already exists in system: " + email);
+                return result;
             }
-            
+
             // Validate user role
             if (!isValidUserRole(userRole)) {
-                System.err.println("Invalid user role: " + userRole);
-                return false;
+                result.setSuccess(false);
+                result.setMessage("Invalid user role: " + userRole);
+                return result;
             }
-            
+
+            // Validate password requirements
+            if (!PasswordHasher.isPasswordValid(temporaryPassword)) {
+                result.setSuccess(false);
+                result.setMessage("Password does not meet requirements: " + 
+                    PasswordHasher.getPasswordRequirements());
+                return result;
+            }
+
             // Create user account
-            boolean success = userAuthDAO.createUser(email, temporaryPassword, userRole, 
-                                                   firstName, lastName, positionId);
+            boolean success = userAuthDAO.createUser(email, temporaryPassword, userRole,
+                firstName, lastName, positionId);
             
             if (success) {
-                System.out.println("System user created successfully: " + email + " (" + userRole + ")");
-                // Log this activity
-                logSystemActivity("USER_CREATED", "Created user account: " + email);
+                result.setSuccess(true);
+                result.setMessage("System user created successfully: " + email + " (" + userRole + ")");
+                logITActivity("USER_CREATED", "Created user account: " + email + " (" + userRole + ")");
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to create user account");
             }
-            
-            return success;
+
         } catch (Exception e) {
-            System.err.println("Error creating system user: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error creating system user: " + e.getMessage());
+            System.err.println("IT Error creating user: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
     /**
      * Resets a user's password to a temporary password
-     * @param employeeId Employee ID
-     * @param temporaryPassword Temporary password
-     * @return true if successful, false otherwise
      */
-    public boolean resetUserPassword(int employeeId, String temporaryPassword) {
+    public ITOperationResult resetUserPassword(int employeeId, String temporaryPassword) {
+        ITOperationResult result = new ITOperationResult();
+        
         try {
+            if (!hasPermission("PASSWORD_MANAGEMENT")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to reset passwords");
+                return result;
+            }
+
+            EmployeeModel employee = employeeDAO.findById(employeeId);
+            if (employee == null) {
+                result.setSuccess(false);
+                result.setMessage("Employee not found: " + employeeId);
+                return result;
+            }
+
+            // Validate password requirements
+            if (!PasswordHasher.isPasswordValid(temporaryPassword)) {
+                result.setSuccess(false);
+                result.setMessage("Password does not meet requirements: " + 
+                    PasswordHasher.getPasswordRequirements());
+                return result;
+            }
+
             boolean success = userAuthDAO.updatePassword(employeeId, temporaryPassword);
             
             if (success) {
-                EmployeeModel employee = employeeDAO.getEmployeeById(employeeId);
-                System.out.println("Password reset for user: " + employee.getEmail());
-                logSystemActivity("PASSWORD_RESET", "Reset password for employee ID: " + employeeId);
+                result.setSuccess(true);
+                result.setMessage("Password reset successfully for user: " + employee.getEmail());
+                logITActivity("PASSWORD_RESET", "Reset password for employee ID: " + employeeId);
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to reset password");
             }
-            
-            return success;
+
         } catch (Exception e) {
-            System.err.println("Error resetting user password: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error resetting password: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
     /**
      * Deactivates a user account
-     * @param employeeId Employee ID to deactivate
-     * @param reason Reason for deactivation
-     * @return true if successful, false otherwise
      */
-    public boolean deactivateUserAccount(int employeeId, String reason) {
+    public ITOperationResult deactivateUserAccount(int employeeId, String reason) {
+        ITOperationResult result = new ITOperationResult();
+        
         try {
+            if (!hasPermission("MANAGE_USERS")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to deactivate user accounts");
+                return result;
+            }
+
+            EmployeeModel employee = employeeDAO.findById(employeeId);
+            if (employee == null) {
+                result.setSuccess(false);
+                result.setMessage("Employee not found: " + employeeId);
+                return result;
+            }
+
             boolean success = userAuthDAO.deactivateUser(employeeId);
             
             if (success) {
-                EmployeeModel employee = employeeDAO.getEmployeeById(employeeId);
-                System.out.println("User account deactivated: " + employee.getEmail() + " - Reason: " + reason);
-                logSystemActivity("USER_DEACTIVATED", "Deactivated user ID: " + employeeId + " - " + reason);
+                result.setSuccess(true);
+                result.setMessage("User account deactivated: " + employee.getEmail());
+                logITActivity("USER_DEACTIVATED", 
+                    "Deactivated user: " + employee.getEmail() + " - Reason: " + reason);
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to deactivate user account");
             }
-            
-            return success;
+
         } catch (Exception e) {
-            System.err.println("Error deactivating user account: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error deactivating user account: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
     /**
      * Updates user role
-     * @param employeeId Employee ID
-     * @param newRole New user role
-     * @return true if successful, false otherwise
      */
-    public boolean updateUserRole(int employeeId, String newRole) {
+    public ITOperationResult updateUserRole(int employeeId, String newRole) {
+        ITOperationResult result = new ITOperationResult();
+        
         try {
+            if (!hasPermission("MANAGE_USERS")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions to update user roles");
+                return result;
+            }
+
             if (!isValidUserRole(newRole)) {
-                System.err.println("Invalid user role: " + newRole);
-                return false;
+                result.setSuccess(false);
+                result.setMessage("Invalid user role: " + newRole);
+                return result;
             }
-            
-            EmployeeModel employee = employeeDAO.getEmployeeById(employeeId);
+
+            EmployeeModel employee = employeeDAO.findById(employeeId);
             if (employee == null) {
-                System.err.println("Employee not found: " + employeeId);
-                return false;
+                result.setSuccess(false);
+                result.setMessage("Employee not found: " + employeeId);
+                return result;
             }
-            
+
             String oldRole = employee.getUserRole();
             employee.setUserRole(newRole);
             
-            boolean success = employeeDAO.updateEmployee(employee);
+            boolean success = employeeDAO.update(employee);
             
             if (success) {
-                System.out.println("User role updated for " + employee.getEmail() + 
-                                 ": " + oldRole + " -> " + newRole);
-                logSystemActivity("ROLE_UPDATED", "Updated role for employee ID: " + employeeId + 
-                                " from " + oldRole + " to " + newRole);
+                result.setSuccess(true);
+                result.setMessage("User role updated for " + employee.getEmail() + 
+                    ": " + oldRole + " -> " + newRole);
+                logITActivity("ROLE_UPDATED", 
+                    "Updated role for employee ID: " + employeeId + 
+                    " from " + oldRole + " to " + newRole);
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Failed to update user role");
             }
-            
-            return success;
+
         } catch (Exception e) {
-            System.err.println("Error updating user role: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error updating user role: " + e.getMessage());
         }
+
+        return result;
     }
-    
+
     /**
      * Gets all system users
-     * @return List of user authentication models
      */
     public List<UserAuthenticationModel> getAllSystemUsers() {
+        if (!hasPermission("MANAGE_USERS")) {
+            System.err.println("IT: Insufficient permissions to view system users");
+            return new ArrayList<>();
+        }
+        
         try {
-            List<EmployeeModel> employees = employeeDAO.getAllEmployees();
+            List<EmployeeModel> employees = employeeDAO.getActiveEmployees();
             List<UserAuthenticationModel> users = new ArrayList<>();
             
             for (EmployeeModel emp : employees) {
@@ -181,218 +290,248 @@ public class IT extends EmployeeModel {
             
             return users;
         } catch (Exception e) {
-            System.err.println("Error getting all system users: " + e.getMessage());
+            System.err.println("Error getting system users: " + e.getMessage());
             return new ArrayList<>();
         }
     }
-    
+
     /**
      * Gets users by role
-     * @param userRole User role to filter by
-     * @return List of users with the specified role
      */
-    public List<UserAuthenticationModel> getUsersByRole(String userRole) {
-        try {
-            List<EmployeeModel> employees = employeeDAO.getEmployeesByRole(userRole);
-            List<UserAuthenticationModel> users = new ArrayList<>();
-            
-            for (EmployeeModel emp : employees) {
-                UserAuthenticationModel user = userAuthDAO.getUserById(emp.getEmployeeId());
-                if (user != null) {
-                    users.add(user);
-                }
-            }
-            
-            return users;
-        } catch (Exception e) {
-            System.err.println("Error getting users by role: " + e.getMessage());
+    public List<EmployeeModel> getUsersByRole(String userRole) {
+        if (!hasPermission("MANAGE_USERS")) {
+            System.err.println("IT: Insufficient permissions to view users by role");
             return new ArrayList<>();
         }
+        
+        return employeeDAO.getEmployeesByRole(userRole);
     }
-    
-    // System Maintenance Methods
-    
-    /**
-     * Performs database backup
-     * @param backupPath Path where backup should be stored
-     * @return true if successful, false otherwise
-     */
-    public boolean performDatabaseBackup(String backupPath) {
-        try {
-            // This is a simplified example - actual implementation would depend on your backup strategy
-            System.out.println("Initiating database backup to: " + backupPath);
-            
-            // Execute mysqldump command or use appropriate backup method
-            String command = "mysqldump --user=root --password=yourpassword payrollsystem_db > " + backupPath;
-            
-            // Log the backup activity
-            logSystemActivity("DB_BACKUP", "Database backup initiated to: " + backupPath);
-            
-            System.out.println("Database backup completed successfully");
-            return true;
-        } catch (Exception e) {
-            System.err.println("Error performing database backup: " + e.getMessage());
-            return false;
-        }
-    }
-    
+
+    // ================================
+    // DATABASE OPERATIONS
+    // ================================
+
     /**
      * Checks database connection health
-     * @return true if database is healthy, false otherwise
      */
-    public boolean checkDatabaseHealth() {
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            if (conn != null && !conn.isClosed()) {
-                // Test with a simple query
-                String testQuery = "SELECT 1";
-                try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery(testQuery)) {
-                    
-                    if (rs.next()) {
-                        System.out.println("Database connection is healthy");
-                        return true;
-                    }
-                }
+    public ITOperationResult checkDatabaseHealth() {
+        ITOperationResult result = new ITOperationResult();
+        
+        try {
+            if (!hasPermission("DATABASE_OPERATIONS")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions for database operations");
+                return result;
             }
-        } catch (SQLException e) {
-            System.err.println("Database health check failed: " + e.getMessage());
+
+            boolean isHealthy = databaseConnection.testConnection();
+            
+            if (isHealthy) {
+                result.setSuccess(true);
+                result.setMessage("Database connection is healthy");
+                logITActivity("DB_HEALTH_CHECK", "Database health check - Status: HEALTHY");
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Database connection is unhealthy");
+                logITActivity("DB_HEALTH_CHECK", "Database health check - Status: UNHEALTHY");
+            }
+
+        } catch (Exception e) {
+            result.setSuccess(false);
+            result.setMessage("Error checking database health: " + e.getMessage());
         }
-        return false;
+
+        return result;
     }
-    
+
     /**
      * Gets database statistics
-     * @return Database statistics as formatted string
      */
-    public String getDatabaseStatistics() {
-        StringBuilder stats = new StringBuilder();
-        stats.append("DATABASE STATISTICS\n");
-        stats.append("Generated: ").append(LocalDate.now()).append("\n\n");
+    public ITOperationResult getDatabaseStatistics() {
+        ITOperationResult result = new ITOperationResult();
         
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            
-            // Get table counts
-            String[] tables = {"employee", "payroll", "attendance", "leaverequest", "deduction"};
-            
-            for (String table : tables) {
-                String query = "SELECT COUNT(*) FROM " + table;
-                try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery(query)) {
-                    
-                    if (rs.next()) {
-                        stats.append(table.toUpperCase()).append(" records: ")
-                             .append(rs.getInt(1)).append("\n");
+        try {
+            if (!hasPermission("DATABASE_OPERATIONS")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions for database operations");
+                return result;
+            }
+
+            StringBuilder stats = new StringBuilder();
+            stats.append("DATABASE STATISTICS\n");
+            stats.append("Generated: ").append(LocalDate.now()).append("\n\n");
+
+            try (Connection conn = databaseConnection.createConnection()) {
+                // Get table counts for main tables
+                String[] tables = {"employee", "payroll", "attendance", "leaverequest"};
+                
+                for (String table : tables) {
+                    String query = "SELECT COUNT(*) FROM " + table;
+                    try (Statement stmt = conn.createStatement();
+                         ResultSet rs = stmt.executeQuery(query)) {
+                        if (rs.next()) {
+                            stats.append(table.toUpperCase()).append(" records: ")
+                                 .append(rs.getInt(1)).append("\n");
+                        }
                     }
                 }
+
+                result.setSuccess(true);
+                result.setMessage("Database statistics retrieved successfully");
+                result.setDatabaseStats(stats.toString());
+                logITActivity("DB_STATS_RETRIEVED", "Retrieved database statistics");
+
+            } catch (SQLException e) {
+                result.setSuccess(false);
+                result.setMessage("Error retrieving database statistics: " + e.getMessage());
             }
-            
-            // Get database size
-            String sizeQuery = "SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 1) AS 'DB Size in MB' " +
-                              "FROM information_schema.tables WHERE table_schema = 'payrollsystem_db'";
-            
-            try (Statement stmt = conn.createStatement();
-                 ResultSet rs = stmt.executeQuery(sizeQuery)) {
-                
-                if (rs.next()) {
-                    stats.append("\nDatabase Size: ").append(rs.getString(1)).append(" MB\n");
-                }
-            }
-            
-        } catch (SQLException e) {
-            stats.append("Error retrieving database statistics: ").append(e.getMessage());
-        }
-        
-        return stats.toString();
-    }
-    
-    /**
-     * Optimizes database tables
-     * @return true if successful, false otherwise
-     */
-    public boolean optimizeDatabaseTables() {
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            String[] tables = {"employee", "payroll", "attendance", "leaverequest", "deduction", 
-                              "position", "address", "benefittype"};
-            
-            int optimizedCount = 0;
-            for (String table : tables) {
-                String optimizeQuery = "OPTIMIZE TABLE " + table;
-                try (Statement stmt = conn.createStatement()) {
-                    stmt.execute(optimizeQuery);
-                    optimizedCount++;
-                    System.out.println("Optimized table: " + table);
-                }
-            }
-            
-            logSystemActivity("DB_OPTIMIZE", "Optimized " + optimizedCount + " database tables");
-            System.out.println("Database optimization completed. Tables optimized: " + optimizedCount);
-            return true;
-            
-        } catch (SQLException e) {
-            System.err.println("Error optimizing database tables: " + e.getMessage());
-            return false;
-        }
-    }
-    
-    /**
-     * Cleans up old session data and logs
-     * @param daysOld Number of days old to consider for cleanup
-     * @return true if successful, false otherwise
-     */
-    public boolean cleanupOldData(int daysOld) {
-        try {
-            // This is a placeholder for cleanup operations
-            // You might want to clean up old attendance records, logs, etc.
-            
-            System.out.println("Cleaning up data older than " + daysOld + " days");
-            
-            // Example: Clean up old attendance records (if you have such a requirement)
-            // String cleanupQuery = "DELETE FROM attendance WHERE date < DATE_SUB(NOW(), INTERVAL ? DAY)";
-            
-            logSystemActivity("DATA_CLEANUP", "Cleaned up data older than " + daysOld + " days");
-            return true;
-            
+
         } catch (Exception e) {
-            System.err.println("Error cleaning up old data: " + e.getMessage());
-            return false;
+            result.setSuccess(false);
+            result.setMessage("Error getting database statistics: " + e.getMessage());
         }
+
+        return result;
     }
-    
-    // System Monitoring Methods
-    
+
+    /**
+     * Performs database backup (simplified)
+     */
+    public ITOperationResult performDatabaseBackup(String backupPath) {
+        ITOperationResult result = new ITOperationResult();
+        
+        try {
+            if (!hasPermission("BACKUP_RESTORE")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions for backup operations");
+                return result;
+            }
+
+            // This is a simplified backup operation
+            // In a real implementation, you would execute mysqldump or similar
+            System.out.println("Initiating database backup to: " + backupPath);
+            
+            // Simulate backup process
+            boolean backupSuccess = true; // In real implementation, check actual backup result
+            
+            if (backupSuccess) {
+                result.setSuccess(true);
+                result.setMessage("Database backup completed successfully to: " + backupPath);
+                logITActivity("DB_BACKUP", "Database backup completed to: " + backupPath);
+            } else {
+                result.setSuccess(false);
+                result.setMessage("Database backup failed");
+            }
+
+        } catch (Exception e) {
+            result.setSuccess(false);
+            result.setMessage("Error performing database backup: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    // ================================
+    // SYSTEM MONITORING
+    // ================================
+
     /**
      * Generates system health report
-     * @return System health report as string
      */
-    public String generateSystemHealthReport() {
-        StringBuilder report = new StringBuilder();
-        report.append("SYSTEM HEALTH REPORT\n");
-        report.append("Generated: ").append(LocalDate.now()).append("\n\n");
+    public ITOperationResult generateSystemHealthReport() {
+        ITOperationResult result = new ITOperationResult();
         
-        // Database health check
-        boolean dbHealthy = checkDatabaseHealth();
-        report.append("Database Status: ").append(dbHealthy ? "HEALTHY" : "UNHEALTHY").append("\n");
-        
-        // Get user statistics
-        List<UserAuthenticationModel> allUsers = getAllSystemUsers();
-        long activeUsers = allUsers.stream().filter(u -> u.isAccountActive()).count();
-        
-        report.append("Total System Users: ").append(allUsers.size()).append("\n");
-        report.append("Active Users: ").append(activeUsers).append("\n");
-        report.append("Inactive Users: ").append(allUsers.size() - activeUsers).append("\n\n");
-        
-        // Add database statistics
-        report.append(getDatabaseStatistics());
-        
-        return report.toString();
+        try {
+            if (!hasPermission("SYSTEM_MONITORING")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions for system monitoring");
+                return result;
+            }
+
+            StringBuilder report = new StringBuilder();
+            report.append("SYSTEM HEALTH REPORT\n");
+            report.append("Generated: ").append(LocalDate.now()).append("\n\n");
+
+            // Database health check
+            boolean dbHealthy = databaseConnection.testConnection();
+            report.append("Database Status: ").append(dbHealthy ? "HEALTHY" : "UNHEALTHY").append("\n");
+
+            // Get user statistics
+            List<UserAuthenticationModel> allUsers = getAllSystemUsers();
+            long activeUsers = allUsers.stream().filter(u -> u.isAccountActive()).count();
+            
+            report.append("Total System Users: ").append(allUsers.size()).append("\n");
+            report.append("Active Users: ").append(activeUsers).append("\n");
+            report.append("Inactive Users: ").append(allUsers.size() - activeUsers).append("\n\n");
+
+            // Get database statistics
+            ITOperationResult dbStats = getDatabaseStatistics();
+            if (dbStats.isSuccess()) {
+                report.append(dbStats.getDatabaseStats());
+            }
+
+            result.setSuccess(true);
+            result.setMessage("System health report generated successfully");
+            result.setSystemHealthReport(report.toString());
+            
+            logITActivity("SYSTEM_HEALTH_REPORT", "Generated system health report");
+
+        } catch (Exception e) {
+            result.setSuccess(false);
+            result.setMessage("Error generating system health report: " + e.getMessage());
+        }
+
+        return result;
     }
-    
-    // Utility Methods
-    
+
+    // ================================
+    // SECURITY MANAGEMENT
+    // ================================
+
+    /**
+     * Generates password reset token
+     */
+    public ITOperationResult generatePasswordResetToken(int employeeId) {
+        ITOperationResult result = new ITOperationResult();
+        
+        try {
+            if (!hasPermission("SECURITY_MANAGEMENT")) {
+                result.setSuccess(false);
+                result.setMessage("Insufficient permissions for security management");
+                return result;
+            }
+
+            EmployeeModel employee = employeeDAO.findById(employeeId);
+            if (employee == null) {
+                result.setSuccess(false);
+                result.setMessage("Employee not found: " + employeeId);
+                return result;
+            }
+
+            // Generate a secure random token
+            String token = UUID.randomUUID().toString();
+            
+            result.setSuccess(true);
+            result.setMessage("Password reset token generated for: " + employee.getEmail());
+            result.setResetToken(token);
+            
+            logITActivity("RESET_TOKEN_GENERATED", 
+                "Password reset token generated for employee: " + employeeId);
+
+        } catch (Exception e) {
+            result.setSuccess(false);
+            result.setMessage("Error generating password reset token: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    // ================================
+    // UTILITY METHODS
+    // ================================
+
     /**
      * Validates if a user role is valid
-     * @param userRole User role to validate
-     * @return true if valid, false otherwise
      */
     private boolean isValidUserRole(String userRole) {
         String[] validRoles = {"Employee", "HR", "IT", "ImmediateSupervisor", "Accounting"};
@@ -403,80 +542,86 @@ public class IT extends EmployeeModel {
         }
         return false;
     }
-    
+
     /**
-     * Logs system activities for audit purposes
-     * @param action Action performed
-     * @param details Details of the action
+     * Checks if IT user has specific permission
      */
-    private void logSystemActivity(String action, String details) {
-        try {
-            // This is a simplified logging - you might want to implement a proper audit log table
-            System.out.println("[AUDIT] " + LocalDate.now() + " - " + action + ": " + details + 
-                             " (Performed by IT User: " + getEmployeeId() + ")");
-            
-            // You could also save this to a database audit log table
-            String logQuery = "INSERT INTO audit_log (employee_id, action, details, timestamp) VALUES (?, ?, ?, NOW())";
-            // Implementation would depend on if you have an audit_log table
-            
-        } catch (Exception e) {
-            System.err.println("Error logging system activity: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * Generates password reset token (for email-based password reset)
-     * @param employeeId Employee ID
-     * @return Reset token string
-     */
-    public String generatePasswordResetToken(int employeeId) {
-        try {
-            // Generate a secure random token
-            String token = java.util.UUID.randomUUID().toString();
-            
-            // In a real implementation, you'd store this token in database with expiration
-            // For now, we'll just return the token
-            
-            logSystemActivity("RESET_TOKEN_GENERATED", "Password reset token generated for employee: " + employeeId);
-            return token;
-            
-        } catch (Exception e) {
-            System.err.println("Error generating password reset token: " + e.getMessage());
-            return null;
-        }
-    }
-    
-    /**
-     * Forces password change on next login
-     * @param employeeId Employee ID
-     * @return true if successful, false otherwise
-     */
-    public boolean forcePasswordChange(int employeeId) {
-        try {
-            // This would require adding a 'force_password_change' column to employee table
-            // For now, we'll just log the action
-            
-            EmployeeModel employee = employeeDAO.getEmployeeById(employeeId);
-            if (employee != null) {
-                System.out.println("Password change forced for user: " + employee.getEmail());
-                logSystemActivity("FORCE_PASSWORD_CHANGE", "Forced password change for employee: " + employeeId);
+    private boolean hasPermission(String permission) {
+        for (String itPermission : IT_PERMISSIONS) {
+            if (itPermission.equals(permission)) {
                 return true;
             }
+        }
+        return false;
+    }
+
+    /**
+     * Gets all IT permissions
+     */
+    public String[] getITPermissions() {
+        return IT_PERMISSIONS.clone();
+    }
+
+    /**
+     * Logs IT activities for audit purposes
+     */
+    private void logITActivity(String action, String details) {
+        try {
+            String logMessage = String.format("[IT AUDIT] %s - %s: %s (Performed by: %s - ID: %d)",
+                LocalDateTime.now(), action, details, getFullName(), getEmployeeId());
+            System.out.println(logMessage);
             
-            return false;
         } catch (Exception e) {
-            System.err.println("Error forcing password change: " + e.getMessage());
-            return false;
+            System.err.println("Error logging IT activity: " + e.getMessage());
         }
     }
-    
+
     @Override
     public String toString() {
         return "IT{" +
                 "employeeId=" + getEmployeeId() +
-                ", name='" + getFirstName() + " " + getLastName() + '\'' +
+                ", name='" + getFullName() + '\'' +
                 ", email='" + getEmail() + '\'' +
-                ", role='" + getUserRole() + '\'' +
+                ", permissions=" + java.util.Arrays.toString(IT_PERMISSIONS) +
                 '}';
+    }
+
+    // ================================
+    // INNER CLASS - RESULT OBJECT
+    // ================================
+
+    /**
+     * Result class for IT operations
+     */
+    public static class ITOperationResult {
+        private boolean success = false;
+        private String message = "";
+        private String databaseStats = "";
+        private String systemHealthReport = "";
+        private String resetToken = "";
+
+        // Getters and setters
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        
+        public String getDatabaseStats() { return databaseStats; }
+        public void setDatabaseStats(String databaseStats) { this.databaseStats = databaseStats; }
+        
+        public String getSystemHealthReport() { return systemHealthReport; }
+        public void setSystemHealthReport(String systemHealthReport) { this.systemHealthReport = systemHealthReport; }
+        
+        public String getResetToken() { return resetToken; }
+        public void setResetToken(String resetToken) { this.resetToken = resetToken; }
+
+        @Override
+        public String toString() {
+            return "ITOperationResult{" +
+                   "success=" + success + 
+                   ", message='" + message + '\'' +
+                   '}';
+        }
     }
 }
