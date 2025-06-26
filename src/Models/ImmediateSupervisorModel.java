@@ -42,6 +42,12 @@ public class ImmediateSupervisorModel extends EmployeeModel {
 
     /**
      * Constructor for ImmediateSupervisor role
+     * @param employeeId
+     * @param firstName
+     * @param lastName
+     * @param email
+     * @param userRole
+     * @param department
      */
     public ImmediateSupervisorModel(int employeeId, String firstName, String lastName, 
             String email, String userRole, String department) {
